@@ -1,38 +1,44 @@
 import { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, Platform, KeyboardAvoidingView } from 'react-native';
 import { Bubble, GiftedChat } from 'react-native-gifted-chat';
+import { collection, query, orderBy, onSnapshot, addDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const Chat = ({ route, navigation }) => {
-  const { name, color } = route.params;
+const Chat = ({ route, navigation, db }) => {
+  const { name, color, userID } = route.params;
   const [messages, setMessages] = useState([]);
 
   useEffect(() => {
     navigation.setOptions({ title: name });
-    setMessages([
-      {
-        _id: 1,
-        text: 'Hello developer',
-        createdAt: new Date(),
-        user: {
-          _id: 2,
-          name: 'React Native',
-          avatar: 'https://placeimg.com/140/140/any',
-        },
-      },
-      {
-        _id: 2,
-        text: 'This is a system message',
-        createdAt: new Date(),
-        system: true,
-      },
-    ]);
-  }, [name, navigation]);
 
-  const onSend = useCallback((newMessages = []) => {
-    setMessages((previousMessages) =>
-      GiftedChat.append(previousMessages, newMessages)
-    );
-  }, []);
+    const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'));
+    const unsubMessages = onSnapshot(q, (docs) => {
+      const newMessages = [];
+      docs.forEach((doc) => {
+        const data = doc.data();
+        newMessages.push({
+          _id: doc.id, // GiftedChat id
+          text: data.text,
+          createdAt: new Date(data.createdAt.toMillis()),
+          user: data.user,
+          system: data.system || false,
+        });
+      });
+      setMessages(newMessages);
+    });
+
+    return () => {
+      if (unsubMessages) unsubMessages();
+    };
+  }, [db, name, navigation]);
+
+  // Save the first message to Firestore
+  const onSend = useCallback(
+    (newMessages = []) => {
+      addDoc(collection(db, 'messages'), newMessages[0]);
+    },
+    [db]
+  );
 
   const renderBubble = (props) => (
     <Bubble
@@ -49,15 +55,13 @@ const Chat = ({ route, navigation }) => {
       <GiftedChat
         messages={messages}
         renderBubble={renderBubble}
-        onSend={(messages) => onSend(messages)}
+        onSend={(msgs) => onSend(msgs)}
         user={{
-          _id: 1,
+          _id: userID,
           name,
         }}
       />
-      {Platform.OS === 'android' ? (
-        <KeyboardAvoidingView behavior="height" />
-      ) : null}
+      {Platform.OS === 'android' ? <KeyboardAvoidingView behavior="height" /> : null}
     </View>
   );
 };

@@ -4,7 +4,7 @@ import {
   ImageBackground, Platform, KeyboardAvoidingView, Alert,
 } from 'react-native';
 
-// React Native Auth AsyncStorage
+// Auth AsyncStorage
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getAuth,
@@ -15,11 +15,11 @@ import {
 
 const getOrInitAuth = (app) => {
   try {
-    return getAuth(app);
-  } catch (e) {
     return initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
+  } catch (e) {
+    return getAuth(app);
   }
 };
 

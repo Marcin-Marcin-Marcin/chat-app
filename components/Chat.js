@@ -1,12 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Platform, KeyboardAvoidingView } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Platform,
+  KeyboardAvoidingView,
+  TouchableOpacity,
+  Linking
+} from 'react-native';
 import { Bubble, GiftedChat, InputToolbar } from 'react-native-gifted-chat';
 import { collection, query, orderBy, onSnapshot, addDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MapView from 'react-native-maps';
+
+import CustomActions from './CustomActions';
 
 const CHAT_CACHE_KEY = 'chat_messages';
 
-const Chat = ({ route, navigation, db, isConnected }) => {
+const Chat = ({ route, navigation, db, storage, isConnected }) => {
   const { name, color, userID } = route.params;
   const [messages, setMessages] = useState([]);
 
@@ -28,21 +38,13 @@ const Chat = ({ route, navigation, db, isConnected }) => {
     try {
       const cachedStr = (await AsyncStorage.getItem(CHAT_CACHE_KEY)) || '[]';
       const parsed = JSON.parse(cachedStr);
-      const revived = parsed.map(m => ({
+      const revived = parsed.map((m) => ({
         ...m,
         createdAt: new Date(m.createdAt),
       }));
       setMessages(revived);
     } catch {
       setMessages([]);
-    }
-  };
-
-  const clearCachedMessages = async () => {
-    try {
-      await AsyncStorage.removeItem(CHAT_CACHE_KEY);
-    } catch (e) {
-      console.log('AsyncStorage remove error:', e?.message);
     }
   };
 
@@ -57,13 +59,15 @@ const Chat = ({ route, navigation, db, isConnected }) => {
         docs.forEach((doc) => {
           const data = doc.data();
           newMessages.push({
-            _id: doc.id, // GiftedChat id
+            _id: doc.id,
             text: data.text,
             createdAt: data.createdAt?.toDate
               ? data.createdAt.toDate()
               : new Date(data.createdAt),
             user: data.user,
             system: data.system || false,
+            image: data.image,
+            location: data.location,
           });
         });
 
@@ -96,9 +100,59 @@ const Chat = ({ route, navigation, db, isConnected }) => {
     />
   );
 
-  // Hide input toolbar when offline
   const renderInputToolbar = (props) => {
     if (isConnected) return <InputToolbar {...props} />;
+    return null;
+  };
+
+  const renderCustomActions = (props) => {
+    return <CustomActions storage={storage} userID={userID} {...props} />;
+  };
+
+  // open coordinates in native maps app
+  const openInMaps = (lat, lng) => {
+    const label = 'Shared location';
+    const url = Platform.select({
+      ios: `http://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(label)}`,
+      android: `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(label)})`,
+      default: `https://www.google.com/maps?q=${lat},${lng}`,
+    });
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
+    });
+  };
+
+  // render a MapView bubble
+  const renderCustomView = (props) => {
+    const { currentMessage } = props;
+    if (currentMessage?.location) {
+      const { latitude, longitude } = currentMessage.location;
+      return (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => openInMaps(latitude, longitude)}
+          accessibilityRole="button"
+          accessibilityLabel="Open this location in Maps"
+        >
+          <MapView
+            style={{
+              width: 150,
+              height: 100,
+              borderRadius: 13,
+              margin: 3,
+            }}
+            region={{
+              latitude,
+              longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+            }}
+            // opens Maps
+            pointerEvents="none"
+          />
+        </TouchableOpacity>
+      );
+    }
     return null;
   };
 
@@ -108,6 +162,8 @@ const Chat = ({ route, navigation, db, isConnected }) => {
         messages={messages}
         renderBubble={renderBubble}
         renderInputToolbar={renderInputToolbar}
+        renderActions={renderCustomActions}
+        renderCustomView={renderCustomView}
         onSend={(msgs) => onSend(msgs)}
         user={{ _id: userID, name }}
       />
